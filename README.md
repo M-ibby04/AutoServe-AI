@@ -201,8 +201,8 @@ The Marketing Agent sends a real email using SendGrid if `SENDGRID_API_KEY` is c
 
 Add your real evidence after running the workflow:
 
-- GitHub issue URL: `PASTE_HERE`
-- GitHub PR URL: `PASTE_HERE`
+- GitHub issue URL: `https://github.com/M-ibby04/AutoServe-AI/issues/1`
+- GitHub PR URL: `https://github.com/M-ibby04/AutoServe-AI/pull/2`
 - Slack message timestamp or screenshot: `PASTE_HERE`
 - Email screenshot or delivery evidence: `PASTE_HERE`
 
