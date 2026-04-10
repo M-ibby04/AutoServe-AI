@@ -30,7 +30,7 @@ MAX_WORKFLOW_ROUNDS = 30
 def run_workflow(startup_idea: str) -> Dict[str, Any]:
     """Run the full AutoServe AI LaunchMind workflow."""
     workspace_root = Path(__file__).resolve().parent
-    load_dotenv(workspace_root / ".env")
+    load_dotenv(workspace_root / ".env", override=True)
 
     bus = MessageBus()
     ceo_agent = CEOAgent(bus)

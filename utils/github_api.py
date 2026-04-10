@@ -139,6 +139,28 @@ class GitHubAPI:
             },
         )
 
+    def find_open_pull_request(
+        self,
+        head_branch: str,
+        base_branch: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return an existing open pull request for a branch, if one exists."""
+        base_branch = base_branch or self.get_default_branch()
+        response = self._request(
+            method="GET",
+            endpoint=f"/repos/{self.owner}/{self.repo_name}/pulls",
+            params={
+                "state": "open",
+                "head": f"{self.owner}:{head_branch}",
+                "base": base_branch,
+            },
+        )
+        if not isinstance(response, list):
+            raise GitHubAPIError("Expected a list response when looking up pull requests.")
+        if not response:
+            return None
+        return response[0]
+
     def create_pr_review_comment(
         self,
         pull_number: int,
