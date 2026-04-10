@@ -29,6 +29,19 @@ class GitHubAPI:
         self.api_base_url = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com").rstrip("/")
         self.timeout = _read_int_env("GITHUB_TIMEOUT", DEFAULT_TIMEOUT)
         self.max_retries = _read_int_env("GITHUB_MAX_RETRIES", DEFAULT_MAX_RETRIES)
+        self.commit_author_name = os.getenv("GITHUB_COMMIT_AUTHOR_NAME", "EngineerAgent")
+        self.commit_author_email = os.getenv(
+            "GITHUB_COMMIT_AUTHOR_EMAIL",
+            "agent@launchmind.ai",
+        )
+        self.committer_name = os.getenv(
+            "GITHUB_COMMITTER_NAME",
+            self.commit_author_name,
+        )
+        self.committer_email = os.getenv(
+            "GITHUB_COMMITTER_EMAIL",
+            self.commit_author_email,
+        )
 
         if not self.token:
             raise GitHubAPIError("Missing GITHUB_TOKEN environment variable.")
@@ -109,6 +122,14 @@ class GitHubAPI:
             "message": commit_message,
             "content": encoded_content,
             "branch": branch,
+            "author": {
+                "name": self.commit_author_name,
+                "email": self.commit_author_email,
+            },
+            "committer": {
+                "name": self.committer_name,
+                "email": self.committer_email,
+            },
         }
         if existing_sha:
             payload["sha"] = existing_sha
