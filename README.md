@@ -19,6 +19,8 @@ agents/
   engineer_agent.py
   marketing_agent.py
   qa_agent.py
+scripts/
+  run_engineer_smoke_test.py
 utils/
   llm.py
   github_api.py
@@ -100,6 +102,10 @@ Copy `.env.example` to `.env` and fill in the real values.
 - `GITHUB_API_BASE_URL`
 - `GITHUB_TIMEOUT`
 - `GITHUB_MAX_RETRIES`
+- `GITHUB_COMMIT_AUTHOR_NAME`
+- `GITHUB_COMMIT_AUTHOR_EMAIL`
+- `GITHUB_COMMITTER_NAME`
+- `GITHUB_COMMITTER_EMAIL`
 
 ### Slack
 
@@ -146,6 +152,12 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+On Windows PowerShell, you can use:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 4. Fill in the required real tokens, repo name, sender email, and recipient inbox.
 
 ## How to Run
@@ -160,6 +172,26 @@ Or provide a startup idea override from the command line:
 
 ```bash
 python main.py "Your alternate startup idea here"
+```
+
+### Engineer Smoke Test
+
+Preview the Engineer Agent locally without creating GitHub artifacts:
+
+```bash
+python scripts/run_engineer_smoke_test.py --write-html
+```
+
+Publish the Engineer Agent flow to GitHub:
+
+```bash
+python scripts/run_engineer_smoke_test.py --publish
+```
+
+If you need to update the existing landing-page PR instead of creating new artifacts, reuse the original issue/PR/branch:
+
+```bash
+python scripts/run_engineer_smoke_test.py --publish --reuse-issue-number 1 --reuse-issue-url "https://github.com/M-ibby04/AutoServe-AI/issues/1" --reuse-pr-number 2 --reuse-pr-url "https://github.com/M-ibby04/AutoServe-AI/pull/2" --reuse-branch landing-page
 ```
 
 ## Demo Output
@@ -197,12 +229,13 @@ If the PR URL is temporarily unavailable, the Slack message falls back to a clea
 
 The Marketing Agent sends a real email using SendGrid if `SENDGRID_API_KEY` is configured. If SendGrid is not configured, it falls back to SMTP credentials.
 
-## Evidence Placeholders
+## Evidence
 
 Add your real evidence after running the workflow:
 
 - GitHub issue URL: `https://github.com/M-ibby04/AutoServe-AI/issues/1`
 - GitHub PR URL: `https://github.com/M-ibby04/AutoServe-AI/pull/2`
+- Example EngineerAgent-authored commit: `https://github.com/M-ibby04/AutoServe-AI/commit/3c0bd06`
 - Slack message timestamp or screenshot: `PASTE_HERE`
 - Email screenshot or delivery evidence: `PASTE_HERE`
 
