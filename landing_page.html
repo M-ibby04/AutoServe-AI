@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoServe AI | AI WhatsApp and Phone Automation</title>
+  <meta name="description" content="AutoServe AI helps small businesses automate WhatsApp chats and phone-call inquiries so teams can respond faster, capture more bookings, and miss fewer orders" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Manrope:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg: #f5efe5;
+      --paper: rgba(255, 252, 246, 0.88);
+      --card: rgba(255, 255, 255, 0.92);
+      --line: rgba(21, 37, 44, 0.1);
+      --ink: #15252c;
+      --muted: #5f6f79;
+      --primary: #176b73;
+      --primary-deep: #0f4f55;
+      --accent: #eb8d41;
+      --accent-soft: rgba(235, 141, 65, 0.14);
+      --shadow: 0 24px 50px rgba(21, 37, 44, 0.12);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --max-width: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Manrope", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(23, 107, 115, 0.18), transparent 28%),
+        radial-gradient(circle at left center, rgba(235, 141, 65, 0.14), transparent 25%),
+        linear-gradient(180deg, #f8f3ea 0%, #f5efe5 50%, #efe7dc 100%);
+      line-height: 1.6;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    .container { width: min(calc(100% - 32px), var(--max-width)); margin: 0 auto; }
+    .topbar { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px); background: rgba(245, 239, 229, 0.78); border-bottom: 1px solid rgba(21, 37, 44, 0.06); }
+    .topbar-inner { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 0; }
+    .brand { display: flex; align-items: center; gap: 12px; font-family: "Space Grotesk", sans-serif; font-weight: 700; }
+    .brand-mark { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--primary), #2a919b); box-shadow: 0 14px 24px rgba(23, 107, 115, 0.24); }
+    .nav { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 0.95rem; }
+    .hero { display: grid; grid-template-columns: 1.2fr 0.85fr; gap: 24px; padding: 64px 0 22px; }
+    .panel, .hero-side-card, .cta-panel { background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: var(--radius-xl); }
+    .panel { padding: 40px; }
+    .eyebrow, .pill, .priority, .step-number { display: inline-flex; align-items: center; padding: 8px 13px; border-radius: 999px; font-size: 0.84rem; font-weight: 700; }
+    .eyebrow, .pill { background: rgba(23, 107, 115, 0.09); color: var(--primary-deep); }
+    .priority { background: var(--accent-soft); color: #8f4d1e; }
+    .step-number { background: rgba(21, 37, 44, 0.06); color: var(--ink); }
+    h1, h2, h3 { margin: 0; font-family: "Space Grotesk", sans-serif; letter-spacing: -0.03em; line-height: 1.08; }
+    h1 { margin-top: 20px; font-size: clamp(2.8rem, 5vw, 4.9rem); max-width: 12ch; }
+    h2 { font-size: clamp(1.9rem, 3vw, 2.8rem); }
+    h3 { font-size: 1.25rem; }
+    .hero-copy, .section-copy, .muted, .feature-card p, .industry-card p, .persona-card p, .workflow-step p, .faq-item p, .proof-card p { color: var(--muted); }
+    .hero-copy { margin-top: 16px; max-width: 60ch; font-size: 1.08rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 50px; padding: 0 22px; border-radius: 999px; font-weight: 700; transition: transform 160ms ease, box-shadow 160ms ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { color: #fff; background: linear-gradient(135deg, var(--primary), #25919b); box-shadow: 0 16px 28px rgba(23, 107, 115, 0.24); }
+    .btn-secondary { background: rgba(255,255,255,0.7); border: 1px solid var(--line); }
+    .hero-points { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 12px; }
+    .hero-points li { display: flex; gap: 12px; color: var(--muted); }
+    .hero-points li::before { content: ""; width: 10px; height: 10px; flex: 0 0 auto; margin-top: 8px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #ffb978); box-shadow: 0 0 0 6px rgba(235, 141, 65, 0.15); }
+    .hero-side { display: grid; gap: 18px; }
+    .hero-side-card { padding: 28px; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
+    .stat { padding: 18px; border-radius: var(--radius-md); background: var(--card); border: 1px solid var(--line); }
+    .stat strong { display: block; font-family: "Space Grotesk", sans-serif; font-size: 1.55rem; }
+    section { padding: 18px 0; }
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 22px; }
+    .section-head p { margin: 0; max-width: 58ch; color: var(--muted); }
+    .proof-grid, .industry-grid, .persona-grid, .feature-grid, .workflow-grid { display: grid; gap: 18px; }
+    .proof-grid { grid-template-columns: repeat(3, 1fr); }
+    .industry-grid, .persona-grid, .feature-grid, .workflow-grid { grid-template-columns: repeat(3, 1fr); }
+    .proof-card, .industry-card, .persona-card, .feature-card, .workflow-step, .split-card { padding: 26px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: 0 18px 32px rgba(21, 37, 44, 0.08); }
+    .split { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    .split-card h2 { margin-bottom: 12px; }
+    .persona-card strong { display: inline-block; margin: 10px 0 8px; color: var(--primary-deep); }
+    .faq-grid { display: grid; gap: 14px; }
+    .faq-item { padding: 18px 20px; border-radius: var(--radius-md); background: var(--card); border: 1px solid var(--line); }
+    .faq-item summary { cursor: pointer; font-family: "Space Grotesk", sans-serif; font-weight: 700; }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .cta-panel { margin: 20px 0 72px; padding: 34px; display: grid; grid-template-columns: 1.1fr auto; gap: 22px; align-items: center; background: linear-gradient(135deg, rgba(23,107,115,0.98), rgba(15,79,85,0.95)); color: #fff; border-color: rgba(255,255,255,0.08); }
+    .cta-panel p { color: rgba(255,255,255,0.82); margin: 10px 0 0; max-width: 56ch; }
+    .cta-panel .btn-primary { background: #fff; color: var(--primary-deep); box-shadow: none; }
+    footer { padding: 0 0 34px; color: var(--muted); font-size: 0.94rem; }
+    @media (max-width: 1000px) {
+      .hero, .split, .cta-panel { grid-template-columns: 1fr; }
+      .proof-grid, .industry-grid, .persona-grid, .feature-grid, .workflow-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 720px) {
+      .topbar-inner, .nav, .section-head { flex-direction: column; align-items: flex-start; }
+      .panel, .hero-side-card, .proof-card, .industry-card, .persona-card, .feature-card, .workflow-step, .split-card, .cta-panel { padding: 22px; }
+      .proof-grid, .industry-grid, .persona-grid, .feature-grid, .workflow-grid, .stats { grid-template-columns: 1fr; }
+      .hero { padding-top: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand"><div class="brand-mark">AI</div><div>AutoServe AI</div></div>
+      <nav class="nav">
+        <a href="#industries">Industries</a>
+        <a href="#features">Features</a>
+        <a href="#workflow">How It Works</a>
+        <a class="btn btn-secondary" href="#cta">Book a Demo</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero" id="top">
+      <div class="panel">
+        <span class="eyebrow">AI operations for busy service teams</span>
+        <h1>Automate Customer Inquiries with AutoServe AI</h1>
+        <p class="hero-copy">Reduce manual workload and improve response speed for your clinic, bakery, or grocery store with our AI-powered automation platform</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#cta">Book a Demo</a>
+          <a class="btn btn-secondary" href="#features">See the workflow</a>
+        </div>
+        <ul class="hero-points"><li>Automate routine customer inquiries through WhatsApp and phone calls</li><li>Capture bookings and orders with less manual effort</li><li>Improve response speed and reduce missed calls and messages</li></ul>
+      </div>
+      <div class="hero-side">
+        <article class="hero-side-card">
+          <span class="pill">Launch summary</span>
+          <h3 style="margin-top: 14px;">Built to reduce missed demand across voice and messaging.</h3>
+          <p class="muted">AutoServe AI helps small businesses automate WhatsApp chats and phone-call inquiries so teams can respond faster, capture more bookings, and miss fewer orders</p>
+          <div class="stats">
+            <div class="stat"><strong>2</strong><span>customer channels unified</span></div>
+            <div class="stat"><strong>3</strong><span>core service workflows covered</span></div>
+            <div class="stat"><strong>5</strong><span>launch-ready MVP features</span></div>
+          </div>
+        </article>
+        <article class="hero-side-card">
+          <span class="pill">Business context</span>
+          <p class="muted" style="margin-top: 14px;">An AI-powered voice and chat automation platform for small businesses such as clinics, bakeries, and grocery stores. It should help them handle customer inquiries, bookings, and orders automatically through WhatsApp and phone calls, reducing manual workload and improving response time.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="proof-grid"><article class="proof-card"><p>Reduce manual workload and improve response speed</p></article><article class="proof-card"><p>Capture more bookings with less manual follow-up</p></article><article class="proof-card"><p>Improve customer experience through faster response times</p></article></div>
+    </section>
+
+    <section class="split">
+      <article class="split-card">
+        <span class="pill">The problem</span>
+        <h2>Customer demand does not pause when your staff gets busy.</h2>
+        <p>Manual customer inquiry handling can be time-consuming and lead to missed bookings and orders, affecting your business&#x27;s reputation and revenue</p>
+      </article>
+      <article class="split-card">
+        <span class="pill">The solution</span>
+        <h2>One assistant layer across WhatsApp and phone-call workflows.</h2>
+        <p>AutoServe AI&#x27;s automation platform helps small businesses streamline customer inquiries, bookings, and orders, allowing teams to focus on high-value tasks</p>
+      </article>
+    </section>
+
+    <section id="industries">
+      <div class="section-head">
+        <div><span class="pill">Target industries</span><h2 style="margin-top: 14px;">Operational support for businesses that lose revenue when replies slip.</h2></div>
+        <p>AutoServe AI is positioned for small service businesses that need faster replies, cleaner handoffs, and fewer missed opportunities across inbound demand.</p>
+      </div>
+      <div class="industry-grid"><article class="industry-card"><span class="pill">Clinics</span><h3>Manual appointment scheduling and inquiry handling</h3><p>Automated appointment questions and reduced manual workload</p></article><article class="industry-card"><span class="pill">Bakeries</span><h3>Missed cake-order calls during busy hours</h3><p>Captured orders from calls and WhatsApp with less manual effort</p></article><article class="industry-card"><span class="pill">Grocery Stores</span><h3>Managing delivery inquiries across calls and WhatsApp</h3><p>Streamlined delivery inquiries and reduced response delays</p></article></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><span class="pill">Who it serves</span><h2 style="margin-top: 14px;">Grounded in real frontline workflows, not abstract AI use cases.</h2></div>
+        <p>The product spec centers on the people who actually manage bookings, orders, call overflow, and repeated customer questions every day.</p>
+      </div>
+      <div class="persona-grid"><article class="persona-card"><h3>Ayesha</h3><strong>Clinic receptionist</strong><p>She loses time answering the same appointment questions all day.</p></article><article class="persona-card"><h3>Usman</h3><strong>Bakery owner</strong><p>He misses cake-order calls during busy hours and loses sales.</p></article><article class="persona-card"><h3>Hina</h3><strong>Grocery store manager</strong><p>Her team struggles to manage delivery inquiries across calls and WhatsApp.</p></article></div>
+    </section>
+
+    <section id="features">
+      <div class="section-head">
+        <div><span class="pill">Core features</span><h2 style="margin-top: 14px;">The minimum viable system a small business would seriously consider paying for.</h2></div>
+        <p>These features are prioritized for practical launch value, fast onboarding, and clear operational payoff across messaging and voice.</p>
+      </div>
+      <div class="feature-grid"><article class="feature-card"><span class="priority">Priority 1</span><h3>WhatsApp inquiry automation</h3><p>Answers common customer questions instantly through WhatsApp.</p></article><article class="feature-card"><span class="priority">Priority 1</span><h3>Call handling assistant</h3><p>Handles routine phone-call inquiries and reduces missed calls.</p></article><article class="feature-card"><span class="priority">Priority 1</span><h3>Booking workflow capture</h3><p>Collects booking details for clinics and service businesses.</p></article><article class="feature-card"><span class="priority">Priority 2</span><h3>Order intake automation</h3><p>Captures bakery and grocery orders with less manual effort.</p></article><article class="feature-card"><span class="priority">Priority 2</span><h3>Team dashboard summary</h3><p>Shows pending conversations, bookings, and unresolved customer intents.</p></article></div>
+    </section>
+
+    <section id="workflow">
+      <div class="section-head">
+        <div><span class="pill">How it works</span><h2 style="margin-top: 14px;">From first inquiry to clear staff handoff in three steps.</h2></div>
+        <p>AutoServe AI keeps the customer experience responsive while still preserving team oversight for edge cases and service quality.</p>
+      </div>
+      <div class="workflow-grid"><article class="workflow-step"><span class="step-number">01</span><h3>Inquiry Automation</h3><p>AutoServe AI automates routine customer inquiries through WhatsApp and phone calls</p></article><article class="workflow-step"><span class="step-number">02</span><h3>Booking Capture</h3><p>Capture bookings and orders from customers with less manual effort</p></article><article class="workflow-step"><span class="step-number">03</span><h3>Team Dashboard</h3><p>View pending conversations, bookings, and unresolved customer intents in one place</p></article></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><span class="pill">FAQ</span><h2 style="margin-top: 14px;">Questions a serious buyer will ask before scheduling a demo.</h2></div>
+        <p>These answers keep the landing page commercially grounded and ready for early customer conversations.</p>
+      </div>
+      <div class="faq-grid"><details class="faq-item"><summary>How does AutoServe AI automate customer inquiries?</summary><p>AutoServe AI uses AI-powered automation to handle routine customer inquiries through WhatsApp and phone calls</p></details><details class="faq-item"><summary>Can I customize the automation workflow for my business?</summary><p>Yes, our team can work with you to customize the automation workflow to fit your business needs</p></details><details class="faq-item"><summary>How do I get started with AutoServe AI?</summary><p>Book a demo with our team to learn more about how AutoServe AI can help your business</p></details></div>
+    </section>
+
+    <section id="cta">
+      <div class="cta-panel">
+        <div>
+          <span class="pill" style="background: rgba(255,255,255,0.14); color: #fff;">Ready for launch</span>
+          <h2 style="margin-top: 14px;">Get Started with AutoServe AI</h2>
+          <p>Book a demo to learn more about how our automation platform can help your business</p>
+        </div>
+        <div><a class="btn btn-primary" href="#top">Book a Demo</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="container">
+    <p>AutoServe AI helps small service businesses manage inquiries, bookings, and orders with AI across WhatsApp and phone calls.</p>
+  </footer>
+</body>
+</html>
