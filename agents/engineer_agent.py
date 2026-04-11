@@ -219,6 +219,9 @@ Rules:
 - headline must feel premium and specific, not generic.
 - subheadline must explain the business outcome in plain language.
 - call_to_action should be short, direct, and demo-ready.
+- Do not use unsupported percentages, ROI claims, revenue promises, time-saved claims, multipliers, or numeric performance improvements anywhere in the landing-page copy.
+- Do not write phrases like "up to 70%", "90% faster", "3x", "double conversions", "save 10 hours", or similar quantified promises unless that exact evidence exists in the provided product specification, which it does not here.
+- Use qualitative but credible value language instead, such as "reduce manual workload", "improve response speed", or "capture more bookings with less manual follow-up".
 - Include exactly 3 hero_supporting_points.
 - Include exactly 3 industry_cards for clinics, bakeries, and grocery stores.
 - Include exactly 3 proof_points grounded in realistic operational value.
@@ -259,6 +262,17 @@ Rules:
             if not isinstance(value, str) or not value.strip():
                 raise LLMError(f"Engineer deliverable field '{field}' must be a non-empty string.")
 
+        for field in [
+            "headline",
+            "subheadline",
+            "summary",
+            "problem_statement",
+            "solution_statement",
+            "final_cta_title",
+            "final_cta_text",
+        ]:
+            self._ensure_no_unsupported_claims(field, deliverable[field].strip())
+
         hero_supporting_points = self._normalize_string_list(
             deliverable.get("hero_supporting_points"),
             field_name="hero_supporting_points",
@@ -287,6 +301,26 @@ Rules:
             required_keys=("question", "answer"),
             expected_length=3,
         )
+
+        for index, point in enumerate(hero_supporting_points, start=1):
+            self._ensure_no_unsupported_claims(
+                f"hero_supporting_points[{index}]",
+                point,
+            )
+        for index, point in enumerate(proof_points, start=1):
+            self._ensure_no_unsupported_claims(
+                f"proof_points[{index}]",
+                point,
+            )
+        for index, card in enumerate(industry_cards, start=1):
+            self._ensure_no_unsupported_claims(
+                f"industry_cards[{index}].challenge",
+                card["challenge"],
+            )
+            self._ensure_no_unsupported_claims(
+                f"industry_cards[{index}].outcome",
+                card["outcome"],
+            )
 
         html = self._render_landing_page(
             startup_name=startup_name,
@@ -384,6 +418,29 @@ Rules:
                 normalized_item[key] = field_value.strip()
             normalized.append(normalized_item)
         return normalized
+
+    @staticmethod
+    def _ensure_no_unsupported_claims(field_name: str, text: str) -> None:
+        """Reject risky quantified marketing claims that are not backed by evidence."""
+        normalized = text.lower()
+        risky_patterns = [
+            r"\bup to\s+\d",
+            r"\d+\s*%",
+            r"\b\d+(\.\d+)?x\b",
+            r"\bdouble\b",
+            r"\btriple\b",
+            r"\b\d+\s*(hours|hour|days|day|minutes|minute)\b",
+            r"\b(save|saves|saved|cut|cuts|reduce|reduces|reduced|boost|boosts|increase|increases|improve|improves|improved)\b[^.]{0,25}\b\d",
+            r"\b(roi|return on investment)\b",
+            r"\bguarantee(d)?\b",
+            r"\binstant(ly)?\b",
+            r"\b24/7\b",
+        ]
+        for pattern in risky_patterns:
+            if re.search(pattern, normalized):
+                raise LLMError(
+                    f"Engineer field '{field_name}' includes an unsupported quantified or exaggerated claim: {text}"
+                )
 
     def _render_landing_page(
         self,
