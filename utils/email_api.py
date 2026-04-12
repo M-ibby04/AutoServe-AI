@@ -26,16 +26,27 @@ class EmailAPI:
 
     def __init__(self) -> None:
         """Load email configuration from environment variables."""
-        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
-        self.from_email = os.getenv("VERIFIED_SENDER_EMAIL") or os.getenv("FROM_EMAIL")
-        self.test_recipient_email = os.getenv("TEST_RECIPIENT_EMAIL")
+        self.sendgrid_api_key = _read_optional_env(
+            "SENDGRID_API_KEY",
+            placeholder_values={"your_sendgrid_api_key"},
+        )
+        verified_sender_email = _read_optional_env(
+            "VERIFIED_SENDER_EMAIL",
+            placeholder_values={"verified-sender@example.com"},
+        )
+        from_email = _read_optional_env("FROM_EMAIL")
+        self.from_email = verified_sender_email or from_email
+        self.test_recipient_email = _read_optional_env(
+            "TEST_RECIPIENT_EMAIL",
+            placeholder_values={"test-inbox@example.com"},
+        )
         self.timeout = _read_int_env("EMAIL_TIMEOUT", DEFAULT_TIMEOUT)
         self.max_retries = _read_int_env("EMAIL_MAX_RETRIES", DEFAULT_MAX_RETRIES)
 
-        self.smtp_host = os.getenv("SMTP_HOST")
+        self.smtp_host = _read_optional_env("SMTP_HOST")
         self.smtp_port = _read_int_env("SMTP_PORT", 587)
-        self.smtp_username = os.getenv("SMTP_USERNAME")
-        self.smtp_password = os.getenv("SMTP_PASSWORD")
+        self.smtp_username = _read_optional_env("SMTP_USERNAME")
+        self.smtp_password = _read_optional_env("SMTP_PASSWORD")
         self.smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() != "false"
 
         if not self.from_email:
@@ -190,6 +201,23 @@ def _read_int_env(name: str, default: int) -> int:
         return int(raw_value)
     except ValueError as exc:
         raise EmailAPIError(f"Environment variable {name} must be an integer.") from exc
+
+
+def _read_optional_env(
+    name: str,
+    placeholder_values: Optional[set[str]] = None,
+) -> Optional[str]:
+    """Read an optional env var while ignoring empty and placeholder values."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return None
+
+    cleaned = raw_value.strip()
+    if not cleaned:
+        return None
+    if placeholder_values and cleaned in placeholder_values:
+        return None
+    return cleaned
 
 
 __all__ = ["EmailAPI", "EmailAPIError"]

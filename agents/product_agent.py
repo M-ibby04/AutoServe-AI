@@ -202,11 +202,16 @@ Return only valid JSON with exactly this structure:
 
 Rules:
 - value_proposition must be concrete and specific to AutoServe AI.
-- Include at least 3 personas.
+- Include exactly 3 personas.
+- Use one persona for a clinic, one for a bakery, and one for a grocery store.
+- Each pain point should clearly connect to missed calls, slow WhatsApp replies, lost bookings, or lost orders.
 - Include at least 5 features.
+- Make the feature set operationally specific. Cover WhatsApp inquiry handling, phone-call handling, booking capture, order capture, and a staff handoff or dashboard workflow.
 - Feature priority must be an integer where 1 is highest priority, 2 is medium priority, and 3 is lowest priority.
 - Include exactly 3 user stories.
+- Use one user story for each of the three core business types: clinic, bakery, and grocery store.
 - Every user story must strictly follow the 'As a / I want / so that' format.
+- The result must be detailed enough that an engineer can build a landing page and a marketer can write launch messaging without guessing.
 - Keep the product practical for small business onboarding and demo execution.
 - Do not include any text outside the JSON object.
 """.strip()

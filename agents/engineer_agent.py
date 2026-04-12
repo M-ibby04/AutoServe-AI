@@ -144,11 +144,12 @@ class EngineerAgent:
         """Build the AutoServe AI engineering prompt."""
         revision_section = ""
         if feedback:
+            previous_result_summary = self._summarize_previous_result(previous_result)
             revision_section = (
                 "Revision feedback from CEO or QA:\n"
                 f"{feedback}\n\n"
                 "Previous engineering output:\n"
-                f"{json.dumps(previous_result or {}, indent=2)}\n\n"
+                f"{json.dumps(previous_result_summary, indent=2)}\n\n"
                 "Improve the existing landing page instead of starting from scratch.\n\n"
             )
 
@@ -370,6 +371,36 @@ Rules:
         deliverable["landing_page_path"] = "landing_page.html"
         deliverable["html"] = html
         return deliverable
+
+    @staticmethod
+    def _summarize_previous_result(previous_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Trim bulky revision context before sending it back to the LLM."""
+        if not isinstance(previous_result, dict):
+            return {}
+
+        html_value = previous_result.get("html", "")
+        html_preview = ""
+        if isinstance(html_value, str) and html_value.strip():
+            cleaned_html = html_value.strip()
+            html_preview = (
+                cleaned_html
+                if len(cleaned_html) <= 2400
+                else cleaned_html[:2380].rstrip() + "\n...[truncated]"
+            )
+
+        return {
+            "headline": previous_result.get("headline"),
+            "subheadline": previous_result.get("subheadline"),
+            "call_to_action": previous_result.get("call_to_action"),
+            "summary": previous_result.get("summary"),
+            "branch": previous_result.get("branch"),
+            "issue_url": previous_result.get("issue_url"),
+            "issue_number": previous_result.get("issue_number"),
+            "pr_url": previous_result.get("pr_url"),
+            "pr_number": previous_result.get("pr_number"),
+            "commit_sha": previous_result.get("commit_sha"),
+            "html_preview": html_preview,
+        }
 
     @staticmethod
     def _normalize_string_list(

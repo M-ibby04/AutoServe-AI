@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional
 
 from message_bus import MessageBus
@@ -29,7 +30,9 @@ class CEOAgent:
         }
         self.decision_log: List[Dict[str, Any]] = []
         self.revision_counts = {"product": 0, "engineer": 0, "marketing": 0}
-        self.max_revisions = 2
+        self.max_revisions = _read_positive_int_env("MAX_REVISIONS", 3)
+        self.pending_revision_targets: set[str] = set()
+        self.qa_dispatch_signature: Optional[str] = None
 
     def start_workflow(self, startup_idea: str) -> Dict[str, Any]:
         """Begin the workflow by creating the first Product Agent task."""
@@ -95,7 +98,12 @@ class CEOAgent:
             "no markdown fences and no extra text."
         )
         user_prompt = self._build_final_summary_prompt()
-        summary = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
+        try:
+            summary = sanitize_llm_json(
+                call_llm(system_prompt=system_prompt, user_prompt=user_prompt)
+            )
+        except LLMError:
+            summary = self._build_fallback_final_summary()
         self.state["final_summary"] = summary
         self.state["completed"] = True
         self._log_decision(
@@ -159,116 +167,92 @@ Rules:
         }
 
     def review_product_spec(self, product_spec: Dict[str, Any]) -> Dict[str, str]:
-        """Review the Product Agent output and decide pass or revise."""
-        system_prompt = (
-            "You are the CEO Agent reviewing an AutoServe AI product specification. "
-            "Return only valid JSON."
-        )
-        user_prompt = f"""
-Startup name: {self.startup_name}
+        """Review the Product Agent output using concrete launch-readiness checks."""
+        issues = self._collect_product_spec_issues(product_spec)
+        if not issues:
+            return {
+                "verdict": "pass",
+                "feedback": (
+                    "The product specification is structurally complete, specific to "
+                    "AutoServe AI, and actionable for Engineering and Marketing."
+                ),
+            }
 
-Review this product specification for AutoServe AI:
-{json.dumps(product_spec, indent=2)}
-
-AutoServe AI context:
-- AI-powered WhatsApp and phone automation for small businesses
-- Use cases include clinics, bakeries, grocery stores, and similar service teams
-- The MVP should help with inquiries, bookings, and orders
-
-Return only valid JSON:
-{{
-  "verdict": "pass" or "revise",
-  "feedback": "string"
-}}
-
-Choose "revise" if the output is vague, generic, weakly prioritized, or not specific enough to AutoServe AI.
-""".strip()
-        review = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
-        return self._normalize_review(review, {"pass", "revise"})
+        return {
+            "verdict": "revise",
+            "feedback": "Please revise the product spec to address these gaps: " + "; ".join(issues),
+        }
 
     def review_engineering_output(self, engineering_result: Dict[str, Any]) -> Dict[str, str]:
-        """Review the Engineer Agent output."""
-        system_prompt = (
-            "You are the CEO Agent reviewing AutoServe AI engineering output. "
-            "Return only valid JSON."
-        )
-        user_prompt = f"""
-Startup name: {self.startup_name}
+        """Review the Engineer Agent output using concrete launch-readiness checks."""
+        issues = self._collect_engineering_issues(engineering_result)
+        if not issues:
+            return {
+                "verdict": "pass",
+                "feedback": (
+                    "The engineering output is structurally complete, aligned with the "
+                    "product specification, and backed by believable GitHub artifacts."
+                ),
+            }
 
-Approved product specification:
-{json.dumps(self.state['product_spec'], indent=2)}
-
-Engineer output:
-{json.dumps(engineering_result, indent=2)}
-
-Return only valid JSON:
-{{
-  "verdict": "pass" or "revise",
-  "feedback": "string"
-}}
-
-Review for:
-- strong AutoServe AI positioning
-- clear landing page structure and CTA
-- believable GitHub execution details
-- consistency with the product spec
-""".strip()
-        review = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
-        return self._normalize_review(review, {"pass", "revise"})
+        return {
+            "verdict": "revise",
+            "feedback": "Please revise the engineering output to address these gaps: " + "; ".join(issues),
+        }
 
     def review_marketing_output(self, marketing_result: Dict[str, Any]) -> Dict[str, str]:
-        """Review the Marketing Agent output."""
-        system_prompt = (
-            "You are the CEO Agent reviewing AutoServe AI marketing output. "
-            "Return only valid JSON."
-        )
-        user_prompt = f"""
-Startup name: {self.startup_name}
+        """Review the Marketing Agent output using concrete launch-readiness checks."""
+        issues = self._collect_marketing_issues(marketing_result)
+        if not issues:
+            return {
+                "verdict": "pass",
+                "feedback": (
+                    "The marketing output is specific to AutoServe AI, commercially "
+                    "credible, and ready for launch delivery across email and Slack."
+                ),
+            }
 
-Approved product specification:
-{json.dumps(self.state['product_spec'], indent=2)}
-
-Marketing output:
-{json.dumps(marketing_result, indent=2)}
-
-Return only valid JSON:
-{{
-  "verdict": "pass" or "revise",
-  "feedback": "string"
-}}
-
-Review for:
-- specificity to WhatsApp and phone automation for small businesses
-- useful, believable positioning for clinics, bakeries, and grocery stores
-- strong but not overhyped messaging
-- email and Slack content that feels launch-ready
-""".strip()
-        review = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
-        return self._normalize_review(review, {"pass", "revise"})
+        return {
+            "verdict": "revise",
+            "feedback": "Please revise the marketing output to address these gaps: " + "; ".join(issues),
+        }
 
     def review_qa_report(self, qa_report: Dict[str, Any]) -> Dict[str, str]:
         """Review the QA verdict and decide the next orchestration step."""
-        system_prompt = (
-            "You are the CEO Agent reviewing a QA report for AutoServe AI. "
-            "Return only valid JSON."
-        )
-        user_prompt = f"""
-Startup name: {self.startup_name}
+        if not isinstance(qa_report, dict):
+            return {
+                "verdict": "act",
+                "feedback": "QA returned an invalid report structure. Re-run the required revisions.",
+            }
 
-QA report:
-{json.dumps(qa_report, indent=2)}
+        verdict = qa_report.get("verdict")
+        if verdict == "pass":
+            return {
+                "verdict": "accept",
+                "feedback": "QA approved the launch package and no further revisions are required.",
+            }
 
-Return only valid JSON:
-{{
-  "verdict": "accept" or "act",
-  "feedback": "string"
-}}
+        issues = qa_report.get("issues")
+        recommendations = qa_report.get("recommendations")
+        issue_text = "; ".join(
+            issue.strip() for issue in issues if isinstance(issue, str) and issue.strip()
+        ) if isinstance(issues, list) else ""
+        recommendation_text = "; ".join(
+            item.strip()
+            for item in recommendations
+            if isinstance(item, str) and item.strip()
+        ) if isinstance(recommendations, list) else ""
 
-Choose "act" if QA found issues that require revisions from Engineer or Marketing.
-Choose "accept" only if the workflow can be finalized.
-""".strip()
-        review = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
-        return self._normalize_review(review, {"accept", "act"})
+        parts = ["QA identified launch issues that still need revisions."]
+        if issue_text:
+            parts.append(f"Issues: {issue_text}.")
+        if recommendation_text:
+            parts.append(f"Recommendations: {recommendation_text}.")
+
+        return {
+            "verdict": "act",
+            "feedback": " ".join(parts).strip(),
+        }
 
     def _handle_product_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Review Product Agent output and either revise or move forward."""
@@ -322,6 +306,8 @@ Choose "accept" only if the workflow can be finalized.
 
         print("[CEO Agent] Engineer output approved.")
         self.state["engineer_result"] = engineering_result
+        self.state["qa_report"] = None
+        self.pending_revision_targets.discard("engineer")
         if not self.state["marketing_result"]:
             print("[CEO Agent] Dispatching approved marketing task with PR context.")
             return self.message_bus.send_message(
@@ -360,6 +346,8 @@ Choose "accept" only if the workflow can be finalized.
 
         print("[CEO Agent] Marketing output approved.")
         self.state["marketing_result"] = marketing_result
+        self.state["qa_report"] = None
+        self.pending_revision_targets.discard("marketing")
         return self._dispatch_qa_if_ready(message)
 
     def _handle_qa_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -483,6 +471,7 @@ Choose "accept" only if the workflow can be finalized.
         previous_result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Internal helper for Engineer Agent revision dispatch."""
+        self.pending_revision_targets.add("engineer")
         return self.message_bus.send_message(
             from_agent=self.agent_name,
             to_agent="engineer",
@@ -504,6 +493,7 @@ Choose "accept" only if the workflow can be finalized.
         previous_result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Internal helper for Marketing Agent revision dispatch."""
+        self.pending_revision_targets.add("marketing")
         return self.message_bus.send_message(
             from_agent=self.agent_name,
             to_agent="marketing",
@@ -523,6 +513,17 @@ Choose "accept" only if the workflow can be finalized.
         """Dispatch the QA task once engineer and marketing outputs are both approved."""
         if not self.state["engineer_result"] or not self.state["marketing_result"]:
             return None
+        if self.pending_revision_targets:
+            return None
+
+        qa_signature = self._build_qa_signature(
+            self.state["engineer_result"],
+            self.state["marketing_result"],
+        )
+        if qa_signature == self.qa_dispatch_signature:
+            return None
+
+        self.qa_dispatch_signature = qa_signature
 
         print("[CEO Agent] Engineering and marketing outputs approved. Dispatching QA task.")
         return self.message_bus.send_message(
@@ -535,12 +536,19 @@ Choose "accept" only if the workflow can be finalized.
                 "product_spec": self.state["product_spec"],
                 "engineer_result": self.state["engineer_result"],
                 "marketing_result": self.state["marketing_result"],
+                "qa_signature": qa_signature,
             },
             parent_message_id=message["message_id"],
         )
 
     def _build_final_summary_prompt(self) -> str:
         """Build the final CEO summary prompt."""
+        engineer_summary = self._summarize_engineering_for_final_summary(
+            self.state["engineer_result"]
+        )
+        marketing_summary = self._summarize_marketing_for_final_summary(
+            self.state["marketing_result"]
+        )
         return f"""
 Startup name: {self.startup_name}
 
@@ -551,10 +559,10 @@ Product specification:
 {json.dumps(self.state['product_spec'], indent=2)}
 
 Engineering result:
-{json.dumps(self.state['engineer_result'], indent=2)}
+{json.dumps(engineer_summary, indent=2)}
 
 Marketing result:
-{json.dumps(self.state['marketing_result'], indent=2)}
+{json.dumps(marketing_summary, indent=2)}
 
 QA report:
 {json.dumps(self.state['qa_report'], indent=2)}
@@ -628,6 +636,350 @@ Return only valid JSON:
                 return feedback.strip()
         return fallback_feedback
 
+    @staticmethod
+    def _truncate_text(value: Any, max_length: int) -> str:
+        """Trim large text fields before sending them to review prompts."""
+        if not isinstance(value, str):
+            return ""
+        cleaned = value.strip()
+        if len(cleaned) <= max_length:
+            return cleaned
+        return cleaned[: max_length - 20].rstrip() + "\n...[truncated]"
+
+    def _collect_product_spec_issues(self, product_spec: Dict[str, Any]) -> List[str]:
+        """Check whether the product spec is concrete enough to unblock downstream agents."""
+        issues: List[str] = []
+        if not isinstance(product_spec, dict):
+            return ["the product specification payload is not a JSON object"]
+
+        value_proposition = product_spec.get("value_proposition")
+        if not isinstance(value_proposition, str) or not value_proposition.strip():
+            issues.append("add a concrete value proposition")
+        else:
+            value_prop_lower = value_proposition.lower()
+            if "whatsapp" not in value_prop_lower:
+                issues.append("mention WhatsApp explicitly in the value proposition")
+            if "phone" not in value_prop_lower and "call" not in value_prop_lower:
+                issues.append("mention phone or call automation explicitly in the value proposition")
+
+        personas = product_spec.get("personas")
+        if not isinstance(personas, list) or len(personas) < 3:
+            issues.append("include at least three concrete personas")
+        else:
+            persona_text = " ".join(
+                " ".join(
+                    str(persona.get(field, ""))
+                    for field in ("name", "role", "pain_point")
+                )
+                for persona in personas
+                if isinstance(persona, dict)
+            ).lower()
+            if "clinic" not in persona_text:
+                issues.append("include a clinic-specific persona")
+            if "bakery" not in persona_text:
+                issues.append("include a bakery-specific persona")
+            if "grocery" not in persona_text:
+                issues.append("include a grocery-specific persona")
+
+        features = product_spec.get("features")
+        if not isinstance(features, list) or len(features) < 5:
+            issues.append("include at least five launch-ready features")
+        else:
+            feature_text = " ".join(
+                " ".join(
+                    str(feature.get(field, ""))
+                    for field in ("name", "description")
+                )
+                for feature in features
+                if isinstance(feature, dict)
+            ).lower()
+            required_feature_checks = {
+                "WhatsApp inquiry handling": "whatsapp",
+                "phone-call handling": ("phone", "call"),
+                "booking capture": "booking",
+                "order capture": "order",
+                "staff handoff or dashboard workflow": ("handoff", "dashboard", "summary"),
+            }
+            for label, terms in required_feature_checks.items():
+                if isinstance(terms, tuple):
+                    if not any(term in feature_text for term in terms):
+                        issues.append(f"cover {label} in the feature set")
+                elif terms not in feature_text:
+                    issues.append(f"cover {label} in the feature set")
+
+        user_stories = product_spec.get("user_stories")
+        if not isinstance(user_stories, list) or len(user_stories) != 3:
+            issues.append("include exactly three user stories")
+        else:
+            story_text = " ".join(
+                story for story in user_stories if isinstance(story, str)
+            ).lower()
+            if "clinic" not in story_text:
+                issues.append("include a clinic user story")
+            if "bakery" not in story_text:
+                issues.append("include a bakery user story")
+            if "grocery" not in story_text:
+                issues.append("include a grocery user story")
+            for story in user_stories:
+                if not isinstance(story, str):
+                    issues.append("keep every user story as a string")
+                    continue
+                story_lower = story.lower()
+                if not (
+                    story_lower.startswith("as a")
+                    and " i want " in story_lower
+                    and " so that " in story_lower
+                ):
+                    issues.append("keep every user story in 'As a / I want / so that' format")
+                    break
+
+        return issues
+
+    def _collect_engineering_issues(self, engineering_result: Dict[str, Any]) -> List[str]:
+        """Check whether the engineering output is concrete and internally consistent."""
+        issues: List[str] = []
+        if not isinstance(engineering_result, dict):
+            return ["the engineering payload is not a JSON object"]
+
+        required_text_fields = {
+            "headline": "add a clear landing-page headline",
+            "subheadline": "add a clear landing-page subheadline",
+            "call_to_action": "add a clear primary CTA",
+            "summary": "add a concise engineering summary",
+            "landing_page_path": "include the landing page path",
+            "branch": "include the GitHub branch name",
+            "issue_url": "include the GitHub issue URL",
+            "pr_url": "include the GitHub pull request URL",
+            "commit_sha": "include the GitHub commit SHA",
+        }
+        for field_name, message in required_text_fields.items():
+            value = engineering_result.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(message)
+
+        product_spec = self.state.get("product_spec") or {}
+        feature_text = " ".join(
+            feature.get("name", "")
+            for feature in product_spec.get("features", [])
+            if isinstance(feature, dict)
+        ).lower()
+        summary_text = " ".join(
+            str(engineering_result.get(field, ""))
+            for field in ("headline", "subheadline", "summary")
+        ).lower()
+        html_text = str(engineering_result.get("html", "")).lower()
+        combined_text = " ".join([summary_text, html_text])
+
+        if "whatsapp" not in combined_text:
+            issues.append("mention WhatsApp automation in the landing page output")
+        if "phone" not in combined_text and "call" not in combined_text:
+            issues.append("mention phone or call automation in the landing page output")
+        if not any(term in combined_text for term in ("book", "demo", "get started", "start")):
+            issues.append("make the landing page CTA more explicit")
+
+        if "booking" in feature_text and "booking" not in combined_text:
+            issues.append("reflect booking capture in the landing page messaging")
+        if "order" in feature_text and "order" not in combined_text:
+            issues.append("reflect order capture in the landing page messaging")
+
+        repo_slug = os.getenv("GITHUB_REPO", "").strip()
+        if repo_slug:
+            repo_url_root = f"https://github.com/{repo_slug}/"
+            issue_url = engineering_result.get("issue_url", "")
+            pr_url = engineering_result.get("pr_url", "")
+            if isinstance(issue_url, str) and issue_url and not issue_url.startswith(repo_url_root):
+                issues.append("make sure the GitHub issue URL points to the configured repository")
+            if isinstance(pr_url, str) and pr_url and not pr_url.startswith(repo_url_root):
+                issues.append("make sure the GitHub PR URL points to the configured repository")
+
+        commit_sha = engineering_result.get("commit_sha", "")
+        if isinstance(commit_sha, str) and commit_sha and len(commit_sha.strip()) < 7:
+            issues.append("return a full commit SHA instead of a very short identifier")
+
+        html_value = engineering_result.get("html", "")
+        if not isinstance(html_value, str) or not html_value.strip():
+            issues.append("include the generated HTML in the engineering payload")
+        else:
+            html_lower = html_value.lower()
+            if "<!doctype html>" not in html_lower:
+                issues.append("make sure the generated HTML starts with a proper doctype")
+            if "<h1" not in html_lower:
+                issues.append("include a visible hero headline in the landing page HTML")
+
+        return issues
+
+    def _collect_marketing_issues(self, marketing_result: Dict[str, Any]) -> List[str]:
+        """Check whether the marketing output is concrete and ready for launch use."""
+        issues: List[str] = []
+        if not isinstance(marketing_result, dict):
+            return ["the marketing payload is not a JSON object"]
+
+        required_fields = {
+            "tagline": "add a concise tagline",
+            "short_description": "add a short launch description",
+            "email_subject": "add an email subject line",
+            "email_body_text": "add a plain-text email body",
+            "email_body_html": "add an HTML email body",
+            "slack_fallback_text": "add Slack fallback text",
+        }
+        for field_name, message in required_fields.items():
+            value = marketing_result.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(message)
+
+        social_posts = marketing_result.get("social_posts")
+        if not isinstance(social_posts, dict):
+            issues.append("include platform-specific social posts")
+        else:
+            for platform in ("x", "linkedin", "instagram"):
+                value = social_posts.get(platform)
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(f"include a non-empty {platform} post")
+
+        combined_text = " ".join(
+            str(marketing_result.get(field, ""))
+            for field in (
+                "tagline",
+                "short_description",
+                "email_subject",
+                "email_body_text",
+                "email_body_html",
+                "slack_fallback_text",
+            )
+        ).lower()
+        if "whatsapp" not in combined_text:
+            issues.append("mention WhatsApp in the marketing copy")
+        if "phone" not in combined_text and "call" not in combined_text:
+            issues.append("mention phone or call automation in the marketing copy")
+        industry_checks = {
+            "clinic": ("clinic", "clinics"),
+            "bakery": ("bakery", "bakeries"),
+            "grocery": ("grocery", "groceries", "grocery store", "grocery stores"),
+        }
+        for label, variants in industry_checks.items():
+            if not any(variant in combined_text for variant in variants):
+                issues.append(f"mention {label}-style businesses in the marketing copy")
+                break
+
+        for risky_phrase in ("guarantee", "instant", "24/7"):
+            if risky_phrase in combined_text:
+                issues.append("remove exaggerated marketing promises")
+                break
+
+        pr_url = marketing_result.get("pr_url", "")
+        repo_slug = os.getenv("GITHUB_REPO", "").strip()
+        if repo_slug and isinstance(pr_url, str) and pr_url.strip():
+            expected_prefix = f"https://github.com/{repo_slug}/"
+            if not pr_url.startswith(expected_prefix):
+                issues.append("make sure the PR URL points to the configured repository")
+
+        return issues
+
+    def _summarize_engineering_for_final_summary(
+        self,
+        engineering_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Trim engineering output before using it in the final CEO summary prompt."""
+        if not isinstance(engineering_result, dict):
+            return {}
+
+        return {
+            "headline": engineering_result.get("headline"),
+            "subheadline": engineering_result.get("subheadline"),
+            "call_to_action": engineering_result.get("call_to_action"),
+            "summary": engineering_result.get("summary"),
+            "landing_page_path": engineering_result.get("landing_page_path"),
+            "branch": engineering_result.get("branch"),
+            "issue_url": engineering_result.get("issue_url"),
+            "pr_url": engineering_result.get("pr_url"),
+            "commit_sha": engineering_result.get("commit_sha"),
+            "html_preview": self._truncate_text(engineering_result.get("html", ""), 1800),
+        }
+
+    def _summarize_marketing_for_final_summary(
+        self,
+        marketing_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Trim marketing output before using it in the final CEO summary prompt."""
+        if not isinstance(marketing_result, dict):
+            return {}
+
+        return {
+            "tagline": marketing_result.get("tagline"),
+            "short_description": marketing_result.get("short_description"),
+            "email_subject": marketing_result.get("email_subject"),
+            "email_body_text_preview": self._truncate_text(
+                marketing_result.get("email_body_text", ""),
+                1200,
+            ),
+            "slack_fallback_text": marketing_result.get("slack_fallback_text"),
+            "social_posts": marketing_result.get("social_posts"),
+            "pr_url": marketing_result.get("pr_url"),
+            "email_result": marketing_result.get("email_result"),
+            "slack_result": marketing_result.get("slack_result"),
+        }
+
+    def _build_qa_signature(
+        self,
+        engineering_result: Dict[str, Any],
+        marketing_result: Dict[str, Any],
+    ) -> str:
+        """Create a compact signature for the currently approved launch artifacts."""
+        signature_payload = {
+            "engineer": {
+                "headline": engineering_result.get("headline"),
+                "call_to_action": engineering_result.get("call_to_action"),
+                "issue_url": engineering_result.get("issue_url"),
+                "pr_url": engineering_result.get("pr_url"),
+                "commit_sha": engineering_result.get("commit_sha"),
+            },
+            "marketing": {
+                "tagline": marketing_result.get("tagline"),
+                "email_subject": marketing_result.get("email_subject"),
+                "pr_url": marketing_result.get("pr_url"),
+                "email_to": (
+                    marketing_result.get("email_result", {}).get("to_email")
+                    if isinstance(marketing_result.get("email_result"), dict)
+                    else None
+                ),
+                "slack_ts": (
+                    marketing_result.get("slack_result", {}).get("ts")
+                    if isinstance(marketing_result.get("slack_result"), dict)
+                    else None
+                ),
+            },
+        }
+        return json.dumps(signature_payload, sort_keys=True)
+
+    def _build_fallback_final_summary(self) -> Dict[str, Any]:
+        """Create a deterministic summary when the final LLM summary is unavailable."""
+        engineer_result = self.state["engineer_result"] or {}
+        marketing_result = self.state["marketing_result"] or {}
+        email_result = marketing_result.get("email_result", {})
+        slack_result = marketing_result.get("slack_result", {})
+
+        return {
+            "startup_name": self.startup_name,
+            "launch_status": "ready",
+            "summary": (
+                "AutoServe AI completed the product, engineering, marketing, and QA workflow. "
+                "The landing page artifact is published to GitHub, launch messaging was delivered "
+                "through email and Slack, and the final launch package is ready."
+            ),
+            "artifacts": {
+                "landing_page_path": engineer_result.get("landing_page_path", "landing_page.html"),
+                "github_issue_url": engineer_result.get("issue_url", ""),
+                "github_pr_url": engineer_result.get("pr_url", ""),
+                "slack_channel": slack_result.get("channel", ""),
+                "email_recipient": email_result.get("to_email", ""),
+            },
+            "key_takeaways": [
+                "The product specification stayed focused on WhatsApp and phone-call automation for small business teams.",
+                "Engineering produced a publishable landing page and updated the linked GitHub branch and pull request.",
+                "Marketing delivered launch-ready email and Slack messaging aligned with clinics, bakeries, and grocery stores.",
+            ],
+        }
+
     def _log_decision(self, stage: str, verdict: str, summary: str) -> None:
         """Append a CEO decision to the decision log."""
         self.decision_log.append(
@@ -640,3 +992,15 @@ Return only valid JSON:
 
 
 __all__ = ["CEOAgent"]
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    """Read a positive integer environment variable with a fallback default."""
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default

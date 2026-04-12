@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict
 
@@ -65,6 +66,7 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
 
     last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
+        retry_delay: float | None = None
         try:
             response = requests.post(
                 url,
@@ -74,6 +76,7 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
             )
 
             if response.status_code in RETRYABLE_STATUS_CODES:
+                retry_delay = _extract_retry_delay_seconds(response)
                 raise LLMError(
                     f"Temporary LLM API failure: {response.status_code} {response.text}"
                 )
@@ -95,7 +98,7 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
             )
         except requests.exceptions.HTTPError as exc:
             last_error = exc
-            status_code = exc.response.status_code if exc.response else "unknown"
+            status_code = exc.response.status_code if exc.response is not None else "unknown"
             logger.error(
                 "LLM HTTP error on attempt %s/%s: %s",
                 attempt,
@@ -116,7 +119,7 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
             raise LLMError("LLM returned an unexpected response format.") from exc
 
         if attempt < max_retries:
-            time.sleep(min(2 ** (attempt - 1), 8))
+            time.sleep(retry_delay or min(2 ** (attempt - 1), 8))
 
     logger.error("LLM request failed after %s attempts.", max_retries)
     raise LLMError("Unable to get a successful LLM response.") from last_error
@@ -208,6 +211,24 @@ def _read_float_env(name: str, default: float) -> float:
         return float(raw_value)
     except ValueError as exc:
         raise LLMError(f"Environment variable {name} must be a float.") from exc
+
+
+def _extract_retry_delay_seconds(response: requests.Response) -> float | None:
+    """Infer a provider-recommended retry delay from headers or response text."""
+    retry_after_header = response.headers.get("Retry-After")
+    if retry_after_header:
+        try:
+            retry_after = float(retry_after_header)
+            return min(max(retry_after + 0.5, 1.0), 90.0)
+        except ValueError:
+            pass
+
+    match = re.search(r"Please try again in\s+([0-9]+(?:\.[0-9]+)?)s", response.text)
+    if match:
+        retry_after = float(match.group(1))
+        return min(max(retry_after + 0.5, 1.0), 90.0)
+
+    return None
 
 
 __all__ = ["LLMError", "call_llm", "sanitize_llm_json"]
