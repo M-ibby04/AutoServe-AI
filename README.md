@@ -13,6 +13,12 @@ AutoServe AI is a LaunchMind assignment project that simulates a micro-startup u
 ## Project Structure
 
 ```text
+assets/
+  screenshots/
+    email-proof.png
+    qa-inline-comments.png
+    slack-ceo-summary.png
+    workflow-summary-output.png
 agents/
   ceo_agent.py
   product_agent.py
@@ -240,6 +246,24 @@ Verified evidence from the final AutoServe AI workflow run:
 - Slack CEO final summary evidence: captured in the submitted Slack screenshot
 - Slack CEO final summary timestamp: `1776003982.598729`
 - Email delivery evidence: captured in the submitted inbox screenshot
+
+### Evidence Screenshots
+
+#### Final Workflow Summary Output
+
+<img src="assets/screenshots/workflow-summary-output.png" alt="Final workflow summary output" width="900" />
+
+#### QA Inline PR Comments On PR #8
+
+<img src="assets/screenshots/qa-inline-comments.png" alt="QA inline PR comments on landing_page.html" width="900" />
+
+#### CEO Final Slack Summary
+
+<img src="assets/screenshots/slack-ceo-summary.png" alt="CEO final Slack summary evidence" width="900" />
+
+#### Email Delivery Proof
+
+<img src="assets/screenshots/email-proof.png" alt="Email delivery proof" width="900" />
 
 ## Notes
 
