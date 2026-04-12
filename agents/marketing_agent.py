@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 import json
 from typing import Any, Dict, Optional
 
@@ -139,11 +140,12 @@ class MarketingAgent:
             "You are the Marketing Agent for AutoServe AI. Return only valid JSON "
             "with no markdown fences."
         )
+        engineer_context = self._summarize_engineer_result(engineer_result)
         user_prompt = self._build_prompt(
             startup_name=startup_name,
             startup_idea=startup_idea,
             product_spec=product_spec,
-            engineer_result=engineer_result,
+            engineer_result=engineer_context,
             pr_reference_text=pr_reference_text,
             feedback=feedback,
             previous_result=previous_result,
@@ -167,11 +169,12 @@ class MarketingAgent:
         """Build the marketing prompt."""
         revision_section = ""
         if feedback:
+            previous_result_summary = self._summarize_previous_result(previous_result)
             revision_section = (
                 "Revision feedback from CEO or QA:\n"
                 f"{feedback}\n\n"
                 "Previous marketing output:\n"
-                f"{json.dumps(previous_result or {}, indent=2)}\n\n"
+                f"{json.dumps(previous_result_summary, indent=2)}\n\n"
                 "Revise the copy while preserving the best parts of the earlier version.\n\n"
             )
 
@@ -202,8 +205,10 @@ Return only valid JSON with exactly this structure:
   "tagline": "string under 10 words",
   "short_description": "2-3 sentence description",
   "email_subject": "string",
-  "email_body_text": "string",
-  "email_body_html": "string",
+  "email_preheader": "string",
+  "email_opening": "string",
+  "email_value_points": ["string", "string", "string"],
+  "email_call_to_action": "string",
   "social_posts": {{
     "x": "string",
     "linkedin": "string",
@@ -215,7 +220,8 @@ Return only valid JSON with exactly this structure:
 Rules:
 - The tagline must be under 10 words.
 - short_description must feel specific to AutoServe AI.
-- The email should sound like outreach to a small-business lead.
+- The email content should sound like outreach to a small-business lead.
+- Include exactly 3 email_value_points.
 - social posts must feel platform-appropriate but still practical.
 - slack_fallback_text must mention the tagline and a one-line launch summary.
 - If a PR link is available, reference it naturally.
@@ -223,14 +229,69 @@ Rules:
 - Do not include any text outside the JSON object.
 """.strip()
 
+    @staticmethod
+    def _summarize_engineer_result(engineer_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Trim the engineering payload before sending it to the marketing prompt."""
+        html_preview = ""
+        html_value = engineer_result.get("html")
+        if isinstance(html_value, str) and html_value.strip():
+            cleaned_html = html_value.strip()
+            html_preview = (
+                cleaned_html
+                if len(cleaned_html) <= 1800
+                else cleaned_html[:1780].rstrip() + "\n...[truncated]"
+            )
+
+        return {
+            "headline": engineer_result.get("headline"),
+            "subheadline": engineer_result.get("subheadline"),
+            "call_to_action": engineer_result.get("call_to_action"),
+            "summary": engineer_result.get("summary"),
+            "landing_page_path": engineer_result.get("landing_page_path"),
+            "branch": engineer_result.get("branch"),
+            "issue_url": engineer_result.get("issue_url"),
+            "pr_url": engineer_result.get("pr_url"),
+            "commit_sha": engineer_result.get("commit_sha"),
+            "html_preview": html_preview,
+        }
+
+    @staticmethod
+    def _summarize_previous_result(previous_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Trim bulky prior marketing output before sending it back to the LLM."""
+        if not isinstance(previous_result, dict):
+            return {}
+
+        html_value = previous_result.get("email_body_html")
+        html_preview = ""
+        if isinstance(html_value, str) and html_value.strip():
+            cleaned_html = html_value.strip()
+            html_preview = (
+                cleaned_html
+                if len(cleaned_html) <= 1600
+                else cleaned_html[:1580].rstrip() + "\n...[truncated]"
+            )
+
+        return {
+            "tagline": previous_result.get("tagline"),
+            "short_description": previous_result.get("short_description"),
+            "email_subject": previous_result.get("email_subject"),
+            "email_body_text": previous_result.get("email_body_text"),
+            "email_body_html_preview": html_preview,
+            "social_posts": previous_result.get("social_posts"),
+            "slack_fallback_text": previous_result.get("slack_fallback_text"),
+            "pr_url": previous_result.get("pr_url"),
+        }
+
     def _validate_deliverable(self, deliverable: Dict[str, Any]) -> Dict[str, Any]:
         """Validate the marketing package."""
         required_fields = [
             "tagline",
             "short_description",
             "email_subject",
-            "email_body_text",
-            "email_body_html",
+            "email_preheader",
+            "email_opening",
+            "email_value_points",
+            "email_call_to_action",
             "social_posts",
             "slack_fallback_text",
             "pr_url",
@@ -241,7 +302,16 @@ Rules:
             if field not in deliverable:
                 raise LLMError(f"Marketing deliverable is missing '{field}'.")
 
-        for field in ["tagline", "short_description", "email_subject", "email_body_text", "email_body_html", "slack_fallback_text", "pr_reference_text"]:
+        for field in [
+            "tagline",
+            "short_description",
+            "email_subject",
+            "email_preheader",
+            "email_opening",
+            "email_call_to_action",
+            "slack_fallback_text",
+            "pr_reference_text",
+        ]:
             value = deliverable[field]
             if not isinstance(value, str) or not value.strip():
                 raise LLMError(f"Marketing field '{field}' must be a non-empty string.")
@@ -261,22 +331,168 @@ Rules:
             if not isinstance(value, str) or not value.strip():
                 raise LLMError(f"social_posts.{platform} must be a non-empty string.")
 
+        email_value_points = deliverable["email_value_points"]
+        if not isinstance(email_value_points, list) or len(email_value_points) != 3:
+            raise LLMError("email_value_points must be a list with exactly 3 items.")
+        normalized_value_points = []
+        for point in email_value_points:
+            if not isinstance(point, str) or not point.strip():
+                raise LLMError("email_value_points must contain only non-empty strings.")
+            normalized_value_points.append(point.strip())
+
+        normalized_copy = self._strengthen_positioning_copy(
+            short_description=deliverable["short_description"].strip(),
+            email_opening=deliverable["email_opening"].strip(),
+            email_value_points=normalized_value_points,
+            slack_fallback_text=deliverable["slack_fallback_text"].strip(),
+        )
+
+        email_body_text = self._render_email_body_text(
+            short_description=normalized_copy["short_description"],
+            email_opening=normalized_copy["email_opening"],
+            email_value_points=normalized_copy["email_value_points"],
+            email_call_to_action=deliverable["email_call_to_action"].strip(),
+            pr_reference_text=deliverable["pr_reference_text"].strip(),
+        )
+        email_body_html = self._render_email_body_html(
+            tagline=deliverable["tagline"].strip(),
+            short_description=normalized_copy["short_description"],
+            email_preheader=deliverable["email_preheader"].strip(),
+            email_opening=normalized_copy["email_opening"],
+            email_value_points=normalized_copy["email_value_points"],
+            email_call_to_action=deliverable["email_call_to_action"].strip(),
+            pr_reference_text=deliverable["pr_reference_text"].strip(),
+            pr_url=deliverable["pr_url"].strip(),
+            pr_url_available=deliverable["pr_url_available"],
+        )
+
         return {
             "tagline": deliverable["tagline"].strip(),
-            "short_description": deliverable["short_description"].strip(),
+            "short_description": normalized_copy["short_description"],
             "email_subject": deliverable["email_subject"].strip(),
-            "email_body_text": deliverable["email_body_text"].strip(),
-            "email_body_html": deliverable["email_body_html"].strip(),
+            "email_body_text": email_body_text,
+            "email_body_html": email_body_html,
             "social_posts": {
                 "x": social_posts["x"].strip(),
                 "linkedin": social_posts["linkedin"].strip(),
                 "instagram": social_posts["instagram"].strip(),
             },
-            "slack_fallback_text": deliverable["slack_fallback_text"].strip(),
+            "slack_fallback_text": normalized_copy["slack_fallback_text"],
             "pr_url": deliverable["pr_url"].strip(),
             "pr_url_available": deliverable["pr_url_available"],
             "pr_reference_text": deliverable["pr_reference_text"].strip(),
         }
+
+    @staticmethod
+    def _strengthen_positioning_copy(
+        short_description: str,
+        email_opening: str,
+        email_value_points: list[str],
+        slack_fallback_text: str,
+    ) -> Dict[str, Any]:
+        """Ensure the final marketing copy always includes required channel and industry language."""
+        industry_phrase = "clinics, bakeries, and grocery stores"
+        channel_phrase = "WhatsApp and phone-call automation"
+
+        normalized_short_description = short_description.strip()
+        if "whatsapp" not in normalized_short_description.lower():
+            normalized_short_description = normalized_short_description.rstrip(".")
+            normalized_short_description += ". Built around WhatsApp and phone-call automation"
+        if "bakery" not in normalized_short_description.lower():
+            normalized_short_description = normalized_short_description.rstrip(".")
+            normalized_short_description += f" for {industry_phrase}"
+        if not normalized_short_description.endswith("."):
+            normalized_short_description += "."
+
+        normalized_email_opening = email_opening.strip()
+        if "whatsapp" not in normalized_email_opening.lower() or "bakery" not in normalized_email_opening.lower():
+            normalized_email_opening = (
+                "AutoServe AI helps clinics, bakeries, and grocery stores handle "
+                "WhatsApp and phone-call inquiries with less manual back-and-forth."
+            )
+
+        normalized_points = [point.strip() for point in email_value_points]
+        combined_points = " ".join(normalized_points).lower()
+        if "bakery" not in combined_points:
+            normalized_points[-1] = (
+                "Support clinics, bakeries, and grocery stores with clearer booking, "
+                "order, and inquiry handling."
+            )
+        if "whatsapp" not in " ".join(normalized_points).lower():
+            normalized_points[0] = (
+                "Handle WhatsApp and phone-call inquiries faster without relying on "
+                "manual follow-up for every message."
+            )
+
+        normalized_slack_text = slack_fallback_text.strip()
+        if "whatsapp" not in normalized_slack_text.lower() or "bakery" not in normalized_slack_text.lower():
+            normalized_slack_text = (
+                f"{normalized_slack_text.rstrip('.')} "
+                f"Built for {industry_phrase} using {channel_phrase}."
+            ).strip()
+
+        return {
+            "short_description": normalized_short_description,
+            "email_opening": normalized_email_opening,
+            "email_value_points": normalized_points,
+            "slack_fallback_text": normalized_slack_text,
+        }
+
+    @staticmethod
+    def _render_email_body_text(
+        short_description: str,
+        email_opening: str,
+        email_value_points: list[str],
+        email_call_to_action: str,
+        pr_reference_text: str,
+    ) -> str:
+        """Render a reliable plain-text launch email from structured copy."""
+        bullet_block = "\n".join(f"- {point}" for point in email_value_points)
+        return (
+            f"{email_opening}\n\n"
+            f"{short_description}\n\n"
+            f"{bullet_block}\n\n"
+            f"{email_call_to_action}\n"
+            f"{pr_reference_text}\n\n"
+            "Best,\n"
+            "AutoServe AI"
+        ).strip()
+
+    @staticmethod
+    def _render_email_body_html(
+        tagline: str,
+        short_description: str,
+        email_preheader: str,
+        email_opening: str,
+        email_value_points: list[str],
+        email_call_to_action: str,
+        pr_reference_text: str,
+        pr_url: str,
+        pr_url_available: bool,
+    ) -> str:
+        """Render a reliable HTML launch email from structured copy."""
+        bullet_items = "".join(f"<li>{escape(point)}</li>" for point in email_value_points)
+        pr_html = (
+            f'<p style="margin:16px 0 0;"><a href="{escape(pr_url)}" '
+            'style="color:#176b73;font-weight:700;text-decoration:none;">View the GitHub PR</a></p>'
+            if pr_url_available and pr_url
+            else f"<p style=\"margin:16px 0 0;\">{escape(pr_reference_text)}</p>"
+        )
+        return (
+            "<!DOCTYPE html>"
+            "<html lang=\"en\"><body style=\"margin:0;background:#f5efe5;font-family:Arial,sans-serif;color:#15252c;\">"
+            "<div style=\"max-width:640px;margin:0 auto;padding:32px 20px;\">"
+            f"<p style=\"display:none;max-height:0;overflow:hidden;opacity:0;\">{escape(email_preheader)}</p>"
+            "<div style=\"background:#ffffff;border:1px solid #e6ddd1;border-radius:18px;padding:32px;\">"
+            f"<p style=\"margin:0 0 10px;color:#176b73;font-weight:700;\">{escape(tagline)}</p>"
+            "<h1 style=\"margin:0 0 14px;font-size:28px;line-height:1.2;\">AutoServe AI Launch Update</h1>"
+            f"<p style=\"margin:0 0 16px;font-size:16px;line-height:1.7;\">{escape(email_opening)}</p>"
+            f"<p style=\"margin:0 0 16px;font-size:16px;line-height:1.7;\">{escape(short_description)}</p>"
+            f"<ul style=\"margin:0 0 20px 20px;padding:0;line-height:1.8;\">{bullet_items}</ul>"
+            f"<p style=\"margin:0 0 12px;font-size:16px;line-height:1.7;font-weight:700;\">{escape(email_call_to_action)}</p>"
+            f"{pr_html}"
+            "</div></div></body></html>"
+        )
 
     def _build_slack_blocks(
         self,

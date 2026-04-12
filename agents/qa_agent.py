@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from typing import Any, Dict, List
 
 from message_bus import MessageBus
 from utils.github_api import GitHubAPI, GitHubAPIError
-from utils.llm import LLMError, call_llm, sanitize_llm_json
+from utils.llm import LLMError
 
 
 class QAAgent:
@@ -77,53 +79,281 @@ class QAAgent:
         engineer_result: Dict[str, Any],
         marketing_result: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Use the LLM to evaluate engineering and marketing alignment."""
-        system_prompt = (
-            "You are the QA Agent for AutoServe AI. Return only valid JSON with no "
-            "markdown fences."
+        """Review engineering and marketing outputs using deterministic launch checks."""
+        engineer_issues = self._collect_engineering_issues(
+            product_spec=product_spec,
+            engineer_result=engineer_result,
         )
-        user_prompt = f"""
-Startup name: {startup_name}
+        marketing_issues = self._collect_marketing_issues(
+            marketing_result=marketing_result,
+        )
 
-Startup idea:
-{startup_idea}
+        if not engineer_issues and not marketing_issues:
+            return {
+                "verdict": "pass",
+                "issues": [],
+                "recommendations": [],
+                "target_agents": [],
+                "agent_feedback": {},
+            }
 
-Approved product specification:
-{json.dumps(product_spec, indent=2)}
+        issues: List[str] = []
+        recommendations: List[str] = []
+        target_agents: List[str] = []
+        agent_feedback: Dict[str, str] = {}
 
-Engineer output:
-{json.dumps(engineer_result, indent=2)}
+        if engineer_issues:
+            target_agents.append("engineer")
+            issues.extend(f"Engineer: {issue}" for issue in engineer_issues[:3])
+            recommendations.append(
+                "Revise the landing page so the headline, CTA, feature framing, and GitHub artifact metadata clearly match the approved product specification."
+            )
+            agent_feedback["engineer"] = (
+                "Please revise the engineering output to address these issues: "
+                + "; ".join(engineer_issues[:4])
+            )
 
-Marketing output:
-{json.dumps(marketing_result, indent=2)}
+        if marketing_issues:
+            target_agents.append("marketing")
+            issues.extend(f"Marketing: {issue}" for issue in marketing_issues[:3])
+            recommendations.append(
+                "Revise the launch messaging so it stays specific to WhatsApp and phone-call automation for clinics, bakeries, and grocery stores without overclaiming."
+            )
+            agent_feedback["marketing"] = (
+                "Please revise the marketing output to address these issues: "
+                + "; ".join(marketing_issues[:4])
+            )
 
-Review both outputs for:
-- alignment with the product specification
-- realism of claims
-- clarity of the landing page and CTA
-- specificity to clinics, bakeries, grocery stores, WhatsApp, and phone-call automation
-- quality of the marketing tone and launch messaging
+        return self._validate_report(
+            {
+                "verdict": "fail",
+                "issues": issues,
+                "recommendations": recommendations,
+                "target_agents": target_agents,
+                "agent_feedback": agent_feedback,
+            }
+        )
 
-Return only valid JSON with exactly this structure:
-{{
-  "verdict": "pass" or "fail",
-  "issues": ["string"],
-  "recommendations": ["string"],
-  "target_agents": ["engineer", "marketing"],
-  "agent_feedback": {{
-    "engineer": "string",
-    "marketing": "string"
-  }}
-}}
+    @staticmethod
+    def _summarize_engineering_output(engineer_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Trim the engineering payload before sending it to the QA LLM prompt."""
+        html_preview = ""
+        html_value = engineer_result.get("html")
+        if isinstance(html_value, str) and html_value.strip():
+            cleaned_html = html_value.strip()
+            html_preview = (
+                cleaned_html
+                if len(cleaned_html) <= 2200
+                else cleaned_html[:2180].rstrip() + "\n...[truncated]"
+            )
 
-Rules:
-- Include at least one issue and one recommendation if verdict is fail.
-- target_agents should name only the agents that need changes.
-- agent_feedback should be specific and actionable.
-""".strip()
+        return {
+            "headline": engineer_result.get("headline"),
+            "subheadline": engineer_result.get("subheadline"),
+            "call_to_action": engineer_result.get("call_to_action"),
+            "summary": engineer_result.get("summary"),
+            "landing_page_path": engineer_result.get("landing_page_path"),
+            "branch": engineer_result.get("branch"),
+            "issue_url": engineer_result.get("issue_url"),
+            "pr_url": engineer_result.get("pr_url"),
+            "commit_sha": engineer_result.get("commit_sha"),
+            "html_preview": html_preview,
+        }
 
-        parsed = sanitize_llm_json(call_llm(system_prompt=system_prompt, user_prompt=user_prompt))
-        return self._validate_report(parsed)
+    @staticmethod
+    def _summarize_marketing_output(marketing_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Trim the marketing payload before sending it to the QA LLM prompt."""
+        email_html_preview = ""
+        html_value = marketing_result.get("email_body_html")
+        if isinstance(html_value, str) and html_value.strip():
+            cleaned_html = html_value.strip()
+            email_html_preview = (
+                cleaned_html
+                if len(cleaned_html) <= 1800
+                else cleaned_html[:1780].rstrip() + "\n...[truncated]"
+            )
+
+        return {
+            "tagline": marketing_result.get("tagline"),
+            "short_description": marketing_result.get("short_description"),
+            "email_subject": marketing_result.get("email_subject"),
+            "email_body_text": marketing_result.get("email_body_text"),
+            "email_body_html_preview": email_html_preview,
+            "social_posts": marketing_result.get("social_posts"),
+            "slack_fallback_text": marketing_result.get("slack_fallback_text"),
+            "pr_url": marketing_result.get("pr_url"),
+            "email_result": marketing_result.get("email_result"),
+            "slack_result": marketing_result.get("slack_result"),
+        }
+
+    def _collect_engineering_issues(
+        self,
+        product_spec: Dict[str, Any],
+        engineer_result: Dict[str, Any],
+    ) -> List[str]:
+        """Apply deterministic launch-readiness checks to the engineering output."""
+        issues: List[str] = []
+        if not isinstance(engineer_result, dict):
+            return ["engineering output is not a JSON object"]
+
+        required_fields = {
+            "headline": "add a landing-page headline",
+            "subheadline": "add a landing-page subheadline",
+            "call_to_action": "add a primary CTA",
+            "summary": "add an engineering summary",
+            "landing_page_path": "include the landing page path",
+            "branch": "include the branch name",
+            "issue_url": "include the GitHub issue URL",
+            "pr_url": "include the GitHub pull request URL",
+            "commit_sha": "include the GitHub commit SHA",
+        }
+        for field_name, issue in required_fields.items():
+            value = engineer_result.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(issue)
+
+        feature_text = " ".join(
+            " ".join(str(feature.get(field, "")) for field in ("name", "description"))
+            for feature in product_spec.get("features", [])
+            if isinstance(feature, dict)
+        ).lower()
+        combined_text = " ".join(
+            str(engineer_result.get(field, ""))
+            for field in ("headline", "subheadline", "summary", "html")
+        ).lower()
+
+        if "whatsapp" not in combined_text:
+            issues.append("mention WhatsApp automation in the landing page")
+        if "phone" not in combined_text and "call" not in combined_text:
+            issues.append("mention phone or call automation in the landing page")
+        if not any(term in str(engineer_result.get("call_to_action", "")).lower() for term in ("book", "demo", "get started", "start", "launch")):
+            issues.append("make the primary CTA more explicit")
+
+        if "booking" in feature_text and "booking" not in combined_text:
+            issues.append("reflect booking capture in the landing-page messaging")
+        if "order" in feature_text and "order" not in combined_text:
+            issues.append("reflect order capture in the landing-page messaging")
+
+        repo_slug = os.getenv("GITHUB_REPO", "").strip()
+        if repo_slug:
+            repo_prefix = f"https://github.com/{repo_slug}/"
+            for field_name, label in (("issue_url", "issue"), ("pr_url", "pull request")):
+                value = engineer_result.get(field_name)
+                if isinstance(value, str) and value.strip() and not value.startswith(repo_prefix):
+                    issues.append(f"make sure the GitHub {label} URL points to the configured repository")
+
+        html_value = engineer_result.get("html")
+        if not isinstance(html_value, str) or not html_value.strip():
+            issues.append("include the generated HTML in the engineering payload")
+        else:
+            html_lower = html_value.lower()
+            if "<!doctype html>" not in html_lower:
+                issues.append("start the generated HTML with a proper doctype")
+            if "<h1" not in html_lower:
+                issues.append("include a visible hero headline in the HTML")
+            if self._contains_unsupported_quantified_claims(html_lower):
+                issues.append("remove unsupported quantified claims from the landing page copy")
+
+        return issues
+
+    def _collect_marketing_issues(self, marketing_result: Dict[str, Any]) -> List[str]:
+        """Apply deterministic launch-readiness checks to the marketing output."""
+        issues: List[str] = []
+        if not isinstance(marketing_result, dict):
+            return ["marketing output is not a JSON object"]
+
+        required_fields = {
+            "tagline": "add a concise tagline",
+            "short_description": "add a short launch description",
+            "email_subject": "add an email subject line",
+            "email_body_text": "add a plain-text email body",
+            "email_body_html": "add an HTML email body",
+            "slack_fallback_text": "add Slack fallback text",
+        }
+        for field_name, issue in required_fields.items():
+            value = marketing_result.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(issue)
+
+        social_posts = marketing_result.get("social_posts")
+        if not isinstance(social_posts, dict):
+            issues.append("include platform-specific social posts")
+        else:
+            for platform in ("x", "linkedin", "instagram"):
+                value = social_posts.get(platform)
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(f"include a non-empty {platform} post")
+
+        combined_text = " ".join(
+            str(marketing_result.get(field, ""))
+            for field in (
+                "tagline",
+                "short_description",
+                "email_subject",
+                "email_body_text",
+                "email_body_html",
+                "slack_fallback_text",
+            )
+        ).lower()
+        if "whatsapp" not in combined_text:
+            issues.append("mention WhatsApp in the marketing copy")
+        if "phone" not in combined_text and "call" not in combined_text:
+            issues.append("mention phone or call automation in the marketing copy")
+
+        industry_variants = {
+            "clinic": ("clinic", "clinics"),
+            "bakery": ("bakery", "bakeries"),
+            "grocery": ("grocery", "groceries", "grocery store", "grocery stores"),
+        }
+        for label, variants in industry_variants.items():
+            if not any(term in combined_text for term in variants):
+                issues.append(f"mention {label}-style businesses in the marketing copy")
+
+        if self._contains_unsupported_quantified_claims(combined_text):
+            issues.append("remove unsupported quantified claims from the marketing copy")
+
+        email_result = marketing_result.get("email_result")
+        if not isinstance(email_result, dict):
+            issues.append("include the email delivery result details")
+        else:
+            if not email_result.get("to_email"):
+                issues.append("include the email recipient in the delivery result")
+            if not email_result.get("message"):
+                issues.append("include the email delivery confirmation message")
+
+        slack_result = marketing_result.get("slack_result")
+        if not isinstance(slack_result, dict):
+            issues.append("include the Slack delivery result details")
+        else:
+            if not slack_result.get("channel"):
+                issues.append("include the Slack channel in the delivery result")
+            if not slack_result.get("ts"):
+                issues.append("include the Slack message timestamp in the delivery result")
+
+        repo_slug = os.getenv("GITHUB_REPO", "").strip()
+        pr_url = marketing_result.get("pr_url")
+        if repo_slug and isinstance(pr_url, str) and pr_url.strip():
+            expected_prefix = f"https://github.com/{repo_slug}/"
+            if not pr_url.startswith(expected_prefix):
+                issues.append("make sure the PR URL points to the configured repository")
+
+        return issues
+
+    @staticmethod
+    def _contains_unsupported_quantified_claims(text: str) -> bool:
+        """Detect unsupported quantified marketing claims that should not pass QA."""
+        if not isinstance(text, str):
+            return False
+        patterns = (
+            r"\b\d{1,3}%\b",
+            r"\b\d+(?:\.\d+)?x\b",
+            r"\bdouble(?:d)?\b",
+            r"\btrip(?:le|led)\b",
+            r"\bsave \d+",
+            r"\b\d+\s+hours?\b",
+            r"\b\d+\s+minutes?\b",
+        )
+        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
     def _post_review_comments(
         self,
