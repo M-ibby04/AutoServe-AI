@@ -56,11 +56,11 @@ The bus stores full history, supports per-agent unread retrieval, and can print 
 
 ### Agents
 
-- CEO Agent: orchestrates the workflow, decomposes work with the LLM, reviews outputs, requests revisions, keeps a decision log, and produces the final summary.
+- CEO Agent: orchestrates the workflow, decomposes work with the LLM, reviews outputs, requests revisions, keeps a decision log, produces the final summary, and posts the final launch summary to Slack.
 - Product Agent: creates the AutoServe AI product spec, handles revisions with feedback and previous context, previews the spec to downstream agents, and sends the reviewable result to the CEO.
 - Engineer Agent: generates the landing page HTML/CSS, writes `landing_page.html`, creates the GitHub issue, branch, commit, and PR, and returns structured engineering output to the CEO.
 - Marketing Agent: generates startup-specific messaging, sends a real email, posts a Slack Block Kit launch message, and returns structured launch-copy results to the CEO.
-- QA Agent: reviews engineering and marketing outputs against the product spec, returns a pass/fail report, and attempts to post at least two PR comments when engineering issues are found.
+- QA Agent: reviews engineering and marketing outputs against the product spec, returns a pass/fail report, and posts inline PR review comments on `landing_page.html` as part of the QA feedback loop.
 
 ## Workflow
 
@@ -76,7 +76,7 @@ The bus stores full history, supports per-agent unread retrieval, and can print 
 10. CEO reviews marketing output and either approves it or requests changes.
 11. QA reviews engineering and marketing outputs together.
 12. If QA fails the package, CEO sends revision requests to Engineer and/or Marketing.
-13. If QA passes, CEO generates the final structured launch summary.
+13. If QA passes, CEO generates the final structured launch summary and posts it to Slack.
 
 This creates a real review-and-revision loop rather than a rigid fixed pipeline.
 
@@ -231,13 +231,15 @@ The Marketing Agent sends a real email using SendGrid if `SENDGRID_API_KEY` is c
 
 ## Evidence
 
-Add your real evidence after running the workflow:
+Verified evidence from the final AutoServe AI workflow run:
 
-- GitHub issue URL: `https://github.com/M-ibby04/AutoServe-AI/issues/1`
-- GitHub PR URL: `https://github.com/M-ibby04/AutoServe-AI/pull/2`
-- Example EngineerAgent-authored commit: `https://github.com/M-ibby04/AutoServe-AI/commit/3c0bd06`
-- Slack message timestamp or screenshot: `PASTE_HERE`
-- Email screenshot or delivery evidence: `PASTE_HERE`
+- GitHub issue URL: `https://github.com/M-ibby04/AutoServe-AI/issues/24`
+- GitHub PR URL: `https://github.com/M-ibby04/AutoServe-AI/pull/8`
+- QA inline PR comment evidence: `https://github.com/M-ibby04/AutoServe-AI/pull/8/changes/8c304b557cb1aa812769b544f68b5813f027d5df`
+- Slack marketing launch evidence: captured in the submitted Slack screenshot
+- Slack CEO final summary evidence: captured in the submitted Slack screenshot
+- Slack CEO final summary timestamp: `1776003982.598729`
+- Email delivery evidence: captured in the submitted inbox screenshot
 
 ## Notes
 
