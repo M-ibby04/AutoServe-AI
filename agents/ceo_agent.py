@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from message_bus import MessageBus
 from utils.llm import LLMError, call_llm, sanitize_llm_json
+from utils.slack_api import SlackAPI, SlackAPIError
 
 
 class CEOAgent:
@@ -393,6 +394,10 @@ Rules:
 
         print("[CEO Agent] QA approved the launch package. Building final summary...")
         summary = self.build_final_summary()
+        print("[CEO Agent] Posting final CEO summary to Slack...")
+        slack_result = self._post_final_summary_to_slack(summary)
+        summary["slack_summary_result"] = slack_result
+        self.state["final_summary"] = summary
         return self.message_bus.send_message(
             from_agent=self.agent_name,
             to_agent=self.agent_name,
@@ -978,6 +983,110 @@ Return only valid JSON:
                 "Engineering produced a publishable landing page and updated the linked GitHub branch and pull request.",
                 "Marketing delivered launch-ready email and Slack messaging aligned with clinics, bakeries, and grocery stores.",
             ],
+        }
+
+    def _post_final_summary_to_slack(self, summary: Dict[str, Any]) -> Dict[str, Any]:
+        """Post the CEO's final launch summary to Slack with Block Kit formatting."""
+        if not isinstance(summary, dict):
+            raise SlackAPIError("Final summary must be a dictionary before posting to Slack.")
+
+        startup_name = str(summary.get("startup_name", self.startup_name)).strip() or self.startup_name
+        launch_status = str(summary.get("launch_status", "ready")).strip() or "ready"
+        summary_text = str(summary.get("summary", "")).strip()
+        if not summary_text:
+            raise SlackAPIError("Final summary is missing the summary text needed for Slack.")
+
+        artifacts = summary.get("artifacts", {})
+        if not isinstance(artifacts, dict):
+            artifacts = {}
+
+        issue_url = str(artifacts.get("github_issue_url", "")).strip()
+        pr_url = str(artifacts.get("github_pr_url", "")).strip()
+        email_recipient = str(artifacts.get("email_recipient", "")).strip()
+        landing_page_path = str(artifacts.get("landing_page_path", "")).strip()
+
+        key_takeaways = summary.get("key_takeaways", [])
+        if isinstance(key_takeaways, list):
+            normalized_takeaways = [
+                takeaway.strip()
+                for takeaway in key_takeaways
+                if isinstance(takeaway, str) and takeaway.strip()
+            ][:3]
+        else:
+            normalized_takeaways = []
+
+        artifact_lines: List[str] = []
+        if issue_url:
+            artifact_lines.append(f"*GitHub issue:* <{issue_url}|Open issue>")
+        if pr_url:
+            artifact_lines.append(f"*GitHub PR:* <{pr_url}|Open pull request>")
+        if landing_page_path:
+            artifact_lines.append(f"*Landing page file:* `{landing_page_path}`")
+        if email_recipient:
+            artifact_lines.append(f"*Launch email recipient:* `{email_recipient}`")
+
+        takeaway_lines = (
+            "\n".join(f"• {takeaway}" for takeaway in normalized_takeaways)
+            if normalized_takeaways
+            else "• Product, engineering, marketing, and QA all completed successfully."
+        )
+        artifacts_text = (
+            "\n".join(artifact_lines)
+            if artifact_lines
+            else "Artifacts are available in the latest workflow output."
+        )
+
+        slack_api = SlackAPI()
+        response = slack_api.post_message(
+            text=(
+                f"{startup_name} final CEO summary: {summary_text} "
+                f"Launch status: {launch_status}."
+            ),
+            blocks=[
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"{startup_name} Final CEO Summary",
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"*Launch status:* {launch_status}\n"
+                            f"*Summary:* {summary_text}"
+                        ),
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Key takeaways:*\n{takeaway_lines}",
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Artifacts:*\n{artifacts_text}",
+                    },
+                },
+            ],
+        )
+
+        self._log_decision(
+            stage="final_summary_slack",
+            verdict="pass",
+            summary="CEO final summary posted to Slack.",
+        )
+
+        return {
+            "channel": response.get("channel"),
+            "ts": response.get("ts"),
+            "message_text": f"{startup_name} final CEO summary posted.",
         }
 
     def _log_decision(self, stage: str, verdict: str, summary: str) -> None:

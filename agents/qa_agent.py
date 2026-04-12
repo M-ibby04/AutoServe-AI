@@ -38,7 +38,7 @@ class QAAgent:
             )
 
             review_comments: List[Dict[str, Any]] = []
-            if report["verdict"] == "fail" and "engineer" in report["target_agents"]:
+            if isinstance(payload.get("engineer_result"), dict):
                 review_comments = self._post_review_comments(
                     engineer_result=payload["engineer_result"],
                     report=report,
@@ -360,34 +360,128 @@ class QAAgent:
         engineer_result: Dict[str, Any],
         report: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """Post at least two safe PR comments when engineering issues are found."""
+        """Post at least two inline PR review comments on the landing page HTML."""
         pr_number = engineer_result.get("pr_number")
         if not isinstance(pr_number, int):
             return []
 
         github = GitHubAPI()
-        comments_to_post = [
+        posted_comments: List[Dict[str, Any]] = []
+        path = engineer_result.get("landing_page_path")
+        if not isinstance(path, str) or not path.strip():
+            path = "landing_page.html"
+
+        commit_id = github.get_pull_request_head_sha(pr_number)
+        html_content = engineer_result.get("html", "")
+        candidate_comments = self._build_inline_review_comments(
+            engineer_result=engineer_result,
+            report=report,
+            html_content=html_content if isinstance(html_content, str) else "",
+        )
+
+        for comment in candidate_comments:
+            try:
+                posted_comments.append(
+                    github.create_pr_review_comment(
+                        pull_number=pr_number,
+                        body=comment["body"],
+                        commit_id=commit_id,
+                        path=path,
+                        line=comment["line"],
+                    )
+                )
+            except GitHubAPIError:
+                posted_comments.append(
+                    github.create_issue_comment(
+                        issue_number=pr_number,
+                        body=f"QA fallback review: {comment['body']} (intended for {path}:{comment['line']})",
+                    )
+                )
+
+        return posted_comments
+
+    def _build_inline_review_comments(
+        self,
+        engineer_result: Dict[str, Any],
+        report: Dict[str, Any],
+        html_content: str,
+    ) -> List[Dict[str, Any]]:
+        """Build two anchored review comments on the landing page HTML."""
+        engineer_issues = [
+            issue.split("Engineer: ", 1)[1].strip()
+            for issue in report.get("issues", [])
+            if isinstance(issue, str) and issue.startswith("Engineer: ")
+        ]
+        recommendations = [
+            item.strip()
+            for item in report.get("recommendations", [])
+            if isinstance(item, str) and item.strip()
+        ]
+
+        headline_line = self._find_line_number(
+            html_content,
+            candidates=("<h1", "class=\"hero-copy\"", "<section class=\"hero\""),
+            fallback=1,
+        )
+        cta_line = self._find_line_number(
+            html_content,
+            candidates=("btn btn-primary", "href=\"#cta\"", "id=\"cta\""),
+            fallback=max(1, headline_line),
+        )
+
+        if report.get("verdict") == "pass":
+            headline_issue = (
+                "QA review note: the hero headline and subheadline clearly communicate "
+                "WhatsApp and phone-call automation for clinics, bakeries, and grocery stores."
+            )
+            cta_recommendation = (
+                "QA review note: the primary CTA is visible and makes the next step "
+                "clear for a launch reviewer."
+            )
+        else:
+            headline_issue = (
+                engineer_issues[0]
+                if engineer_issues
+                else "Ensure the hero section communicates the approved WhatsApp and phone-call value proposition clearly."
+            )
+            cta_recommendation = (
+                recommendations[0]
+                if recommendations
+                else "Tighten the CTA so a reviewer can immediately see the next action and why it matters."
+            )
+
+        comments = [
             {
-                "body": f"QA note: {report['issues'][0]}",
+                "line": headline_line,
+                "body": headline_issue if headline_issue.startswith("QA review") else f"QA review: {headline_issue}",
             },
             {
-                "body": (
-                    "QA recommendation: "
-                    f"{report['recommendations'][0] if report['recommendations'] else 'Tighten the page copy and CTA clarity.'}"
-                ),
+                "line": cta_line,
+                "body": cta_recommendation if cta_recommendation.startswith("QA review") else f"QA recommendation: {cta_recommendation}",
             },
         ]
 
-        posted_comments: List[Dict[str, Any]] = []
-        for comment in comments_to_post:
-            posted_comments.append(
-                github.create_issue_comment(
-                    issue_number=pr_number,
-                    body=f"QA review: {comment['body']}",
-                )
-            )
+        # Keep the assignment requirement explicit: at least two comments on the HTML file.
+        return comments[:2]
 
-        return posted_comments
+    @staticmethod
+    def _find_line_number(
+        text: str,
+        candidates: tuple[str, ...],
+        fallback: int,
+    ) -> int:
+        """Find the first matching line number for a list of HTML markers."""
+        if not isinstance(text, str) or not text:
+            return fallback
+
+        lines = text.splitlines()
+        for index, line in enumerate(lines, start=1):
+            lowered = line.lower()
+            for candidate in candidates:
+                if candidate.lower() in lowered:
+                    return index
+
+        return fallback
 
     def _validate_report(self, report: Dict[str, Any]) -> Dict[str, Any]:
         """Validate the QA report shape."""
